@@ -1,8 +1,9 @@
-import requests, time, hashlib, base64, hmac, qrcode, imageio, tempfile
+import requests, time, hashlib, base64, hmac, qrcode, os, threading, json
 from BrowserClient.CustomSRP import CustomSRP, hex_to_bytes, bytes_to_hex, pad
 
 class BrowserClient():
     def __init__(self, client_hash: str, authentication_session_id: str, requests_session = requests.Session()):
+        self.qr_display_thread_lock = threading.Lock()
         self.session = requests_session
 
         self.client_hash = client_hash
@@ -22,6 +23,29 @@ class BrowserClient():
         print(f"Beginning login session for {self.service_provider_name}:")
         print(f"{self.reference_text_header}")
         print(f"{self.reference_text_body}")
+
+    def __display_qr_ascii(self, stop_event):
+        def render_qr(qr):
+            matrix = qr.get_matrix()
+            return "\n".join("".join(("  " if cell else "██" for cell in row)) for row in matrix)
+
+        frame = True
+        while not stop_event.is_set():
+            os.system("cls" if os.name == "nt" else "clear")
+            print("Scan this QR Code in the app:")
+            qr1, qr2 = self.__get_qr_codes()
+            print(render_qr(qr1) if frame else render_qr(qr2))
+            frame = not frame
+            stop_event.wait(1)
+    
+    def __set_qr_codes(self, qr1, qr2):
+        with self.qr_display_thread_lock:
+            self.qr1 = qr1
+            self.qr2 = qr2
+
+    def __get_qr_codes(self):
+        with self.qr_display_thread_lock:
+            return self.qr1, self.qr2
 
     def __convert_human_authenticator_name_to_combination_id(self, authenticator_name):
         match authenticator_name:
@@ -253,7 +277,8 @@ class BrowserClient():
         poll_url = r["pollUrl"]
         ticket = r["ticket"]
         print("Login request has been made, open your MitID app now")
-        gif_tmp_file = None
+        qr_stop_event = None
+        qr_display_thread = None
         while True:
             r = self.session.post(poll_url, json={"ticket": ticket})
 
@@ -272,29 +297,37 @@ class BrowserClient():
                     "h": r.json()["channelBindingValue"][:int(len(r.json()["channelBindingValue"])/2)],
                     "uc": r.json()["updateCount"]
                 }
-                qr1 = qrcode.make(qr_data)
+                qr1 = qrcode.QRCode(border=1)
+                qr1.add_data(json.dumps(qr_data, separators=(',', ':')))
+                qr1.make()
 
                 qr_data["p"] = 2
                 qr_data["h"] = r.json()["channelBindingValue"][int(len(r.json()["channelBindingValue"])/2):]
-                qr2 = qrcode.make(qr_data)
 
-                qr1_image = qr1.convert("RGB")
-                qr2_image = qr2.convert("RGB")
+                qr2 = qrcode.QRCode(border=1)
+                qr2.add_data(json.dumps(qr_data, separators=(',', ':')))
+                qr2.make()
 
-                if gif_tmp_file is None:
-                    gif_tmp_file = tempfile.NamedTemporaryFile(suffix=".gif")
-                    print(f"Please open the QR code stored at '{gif_tmp_file.name}' and scan it in the app")
-                else:
-                    print("The QR code has been updated, please reload the QR code in your viewer")
+                self.__set_qr_codes(qr1, qr2)
 
-                imageio.mimsave(gif_tmp_file.name, [qr1_image, qr2_image], loop=0, fps=1)
+                if qr_stop_event is None:
+                    qr_stop_event = threading.Event()
+                    qr_display_thread = threading.Thread(target=self.__display_qr_ascii, args=[qr_stop_event])
+                    qr_display_thread.start()
+
                 continue
 
             if r.status_code == 200 and r.json()["status"] == "channel_verified":
+                if qr_display_thread and qr_display_thread.is_alive():
+                    qr_stop_event.set()
+                    qr_display_thread.join()
                 print("The OTP/QR code has been verified, now waiting user to approve login")
                 continue
 
             if not (r.status_code == 200 and r.json()["status"] == "OK" and r.json()["confirmation"] == True):
+                if qr_display_thread and qr_display_thread.is_alive():
+                    qr_stop_event.set()
+                    qr_display_thread.join()
                 print("Login request was not accepted")
                 raise Exception(r.content)
 
