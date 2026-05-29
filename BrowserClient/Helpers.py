@@ -8,7 +8,7 @@ def get_default_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="argparser")
     parser.add_argument('--user', help='Your MitID username. For example: "GenericDanishCitizen"', required=True)
     parser.add_argument('--password', help='Your MitID password for use with the "TOKEN" login method. For example: "CorrectHorseBatteryStaple"', required=False)
-    parser.add_argument('--method', choices=['APP', 'TOKEN'], help='Which method to use when logging in to MitID, default APP', default='APP', required=False)
+    parser.add_argument('--method', choices=['APP', 'TOKENANDPASSWORD', 'TOKEN', 'PASSWORD'], help='Which method to use when logging in to MitID, default APP', default='APP', required=False)
     parser.add_argument('--proxy', help='An optional socks5 proxy to use for all communication with MitID', required=False)
     return parser
 
@@ -16,9 +16,9 @@ def get_default_args() -> argparse.ArgumentParser:
 def process_args(args):
     method = args.method
     user_id = args.user
-    if args.password and args.method == 'TOKEN':
+    if args.password and (args.method == 'TOKENANDPASSWORD' or args.method == 'PASSWORD'):
         password = args.password
-    elif args.method == 'TOKEN':
+    elif args.method == 'TOKENANDPASSWORD' or args.method == 'PASSWORD':
         password = input("Please input your password\n")
     else:
         password = None
@@ -35,16 +35,23 @@ def get_authentication_code(session, aux, method, user_id, password):
 
     print(f"Available authenticator: {available_authenticators}")
 
-    if method == "TOKEN" and "TOKEN" in available_authenticators:
+    if method == "TOKENANDPASSWORD" and "TOKEN" in available_authenticators:
         token_digits = input("Please input the 6 digits from your code token\n").strip()
         MitIDClient.authenticate_with_token(token_digits)
         MitIDClient.authenticate_with_password(password)
     elif method == "APP" and "APP" in available_authenticators:
         MitIDClient.authenticate_with_app()
-    elif method == "TOKEN" and "TOKEN" not in available_authenticators:
+    elif method == "TOKENANDPASSWORD" and "TOKEN" not in available_authenticators:
         raise Exception(f"Token authentication method chosen but not available for MitID user")
+    elif method == "TOKEN" and "TOKEN" not in available_authenticators:
+        raise Exception(f"Token authentication method chosen but not available for MitID user")    
     elif method == "APP" and "APP" not in available_authenticators:    
         raise Exception(f"App authentication method chosen but not available for MitID user")
+    elif method == "PASSWORD":
+        MitIDClient.authenticate_with_password(password)
+    elif method == "TOKEN":
+        token_digits = input("Please input the 6 digits from your code token\n").strip()
+        MitIDClient.authenticate_with_token(token_digits)        
     else:
         raise Exception(f"Unknown authenticator method: {method}")
 

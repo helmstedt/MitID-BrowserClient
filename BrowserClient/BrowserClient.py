@@ -62,6 +62,10 @@ class BrowserClient():
                 return "APP"
             case "S1":
                 return "TOKEN"
+            case "L1":
+                return "PASSWORD"
+            case "L4":
+                return "TOKEN"                
             case _:
                 raise Exception(f"No such combination ID ({combination_id})")
     

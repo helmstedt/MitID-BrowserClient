@@ -16,36 +16,25 @@ def nordnet_login(user_id, password='', method="APP", proxy=None):
     digits = string.digits
     form_digits = ''.join(secrets.choice(digits) for i in range(29))
 
-    login_url = f"https://id.signicat.com/oidc/authorize?client_id=prod.nordnet.dk.8x&response_type=code&redirect_uri=https://www.nordnet.dk/login&scope=openid signicat.national_id&acr_values=urn:signicat:oidc:method:mitid-cpr&state=NEXT_OIDC_STATE_{nem_login_state}"
+    json_data = {
+        "redirectUri": "https://www.nordnet.dk/login",
+        "state": f"NEXT_OIDC_STATE_{nem_login_state}",
+        "idp":"MITID"
+    }
+    login_url = 'https://api.prod.nntech.io/authentication/v2/methods/signicat/start'
+    request = nordnet_session.post(login_url, json=json_data)
+    request.raise_for_status()
 
-    request = nordnet_session.get(login_url)
-    if request.status_code != 200:
-        msg = f"\n  Failed Nordnet session.get attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
-
+    request = nordnet_session.get(request.json()['requestUri'])
+    request.raise_for_status()
     soup = BeautifulSoup(request.text, 'lxml')
-    next = soup.div['data-index-url']
 
-    request = nordnet_session.get(next)
-    if request.status_code != 200:
-        msg = f"\n  Failed Nordnet session.get attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
-
+    request = nordnet_session.get(soup.div['data-index-url'])
+    request.raise_for_status()
     soup = BeautifulSoup(request.text, 'lxml')
 
     request = nordnet_session.post(soup.div.next['data-base-url']+soup.div.next['data-init-auth-path'])
-    if request.status_code != 200:
-        msg = f"\n  Failed Nordnet session.post attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
+    request.raise_for_status()
 
     # MitID procedure
     aux = json.loads(base64.b64decode(request.json()["aux"]))
@@ -57,20 +46,10 @@ def nordnet_login(user_id, password='', method="APP", proxy=None):
     headers = {'Content-Type': f'multipart/form-data; boundary=---------------------------{form_digits}'}
 
     request = nordnet_session.post(soup.div.next['data-base-url']+soup.div.next['data-auth-code-path'], data=payload, headers=headers)
-    if request.status_code != 200:
-        msg = f"\n  Failed Nordnet session.post attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
+    request.raise_for_status()
 
     request = nordnet_session.get(soup.div.next['data-base-url']+soup.div.next['data-finalize-auth-path'])
-    if request.status_code != 200:
-        msg = f"\n  Failed Nordnet session.get attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
+    request.raise_for_status()
 
     parsed_url = urlparse(request.url)
     code = parse_qs(parsed_url.query)['code'][0]
@@ -87,30 +66,14 @@ def nordnet_login(user_id, password='', method="APP", proxy=None):
     nordnet_session.headers['client-id'] = 'NEXT'
 
     request = nordnet_session.post('https://www.nordnet.dk/nnxapi/authentication/v2/sessions', json=payload)
-    if request.status_code != 200:
-        msg = f"\n  Failed Nordnet session.post attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
+    request.raise_for_status()
     
     request = nordnet_session.post('https://www.nordnet.dk/api/2/authentication/nnx-session/login', json={})
-    if request.status_code != 200:
-        msg = f"\n  Failed Nordnet session.post attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
-
+    request.raise_for_status()
     nordnet_session.headers['ntag'] = request.headers['ntag']
 
     request = nordnet_session.post('https://www.nordnet.dk/nnxapi/authorization/v1/tokens', json={})
-    if request.status_code not in (200,201):
-        msg = f"\n  Failed Nordnet session.post attempt:\n"\
-              f"    Status code: {request.status_code}\n"\
-              f"    Reason: {request.reason}\n"\
-              f"    Content: {request.content}"
-        raise Exception(msg)
+    request.raise_for_status()
 
     bearer_token = request.json()['jwt']
 
