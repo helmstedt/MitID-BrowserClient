@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 sys.path.append("..")
 sys.path.append(".")
 from BrowserClient.BrowserClient import BrowserClient
-from BrowserClient.Helpers import get_authentication_code, process_args, generate_nem_login_parameters, get_default_args, choose_between_multiple_identitites
+from BrowserClient.Helpers import get_authentication_code, process_args, generate_nem_login_parameters, get_default_args, choose_between_multiple_identitites, get_aux_nem_login
 
 argparser = get_default_args()
 args = argparser.parse_args()
@@ -29,16 +29,7 @@ if request.url != "https://nemlog-in.mitid.dk/login/mitid":
 soup = BeautifulSoup(request.text, "lxml")
 requestverificationtoken = soup.find('input', {'name': '__RequestVerificationToken'}).get('value')
 
-params = {
-    '__RequestVerificationToken': requestverificationtoken,
-    'SessionStorageActiveSessionUuid': session.cookies['SessionUuid'],
-    'SessionStorageActiveChallenge': session.cookies['Challenge']
-}
-initialize_url = 'https://nemlog-in.mitid.dk/login/mitid/initialize'
-request = session.post(initialize_url, data=params)
-request.raise_for_status()
-
-aux = json.loads(json.loads(request.text))['Aux']
+aux, params = get_aux_nem_login(session, requestverificationtoken)
 
 # MitID procedure
 aux = json.loads(base64.b64decode(aux))

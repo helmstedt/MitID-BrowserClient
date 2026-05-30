@@ -2,6 +2,7 @@ import binascii, base64, hashlib, argparse
 from Crypto import Random
 from BrowserClient.BrowserClient import BrowserClient
 from bs4 import BeautifulSoup
+import json
 
 # Use this function to add the minimum required args to your login flow
 def get_default_args() -> argparse.ArgumentParser:
@@ -98,3 +99,16 @@ def generate_nem_login_parameters():
     nem_login_code_challenge = __generate_challenge(nem_login_code_verifier)
 
     return nem_login_state, nem_login_nonce, nem_login_code_verifier, nem_login_code_challenge
+
+def get_aux_nem_login(session, requestverificationtoken):
+    params = {
+        '__RequestVerificationToken': requestverificationtoken,
+        'SessionStorageActiveSessionUuid': session.cookies['SessionUuid'],
+        'SessionStorageActiveChallenge': session.cookies['Challenge']
+    }
+    initialize_url = 'https://nemlog-in.mitid.dk/login/mitid/initialize'
+    request = session.post(initialize_url, data=params)
+    request.raise_for_status()
+
+    aux = json.loads(json.loads(request.text))['Aux']
+    return aux, params
