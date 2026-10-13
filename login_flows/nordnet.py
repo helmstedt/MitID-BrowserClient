@@ -6,7 +6,31 @@ sys.path.append("..")
 sys.path.append(".")
 from BrowserClient.Helpers import get_authentication_code, process_args, get_default_args
 
-def nordnet_login(user_id, password='', method="APP", proxy=None):
+def submit_cpr(nordnet_session, request, cpr):
+    """Complete Signicat's CPR-number step and return the response carrying the OAuth code."""
+    form = BeautifulSoup(request.text, 'lxml').find(id='cpr-form')
+    base_url = form['data-base-url']
+
+    if not cpr:
+        cpr = input("Please input your CPR number (10 digits)\n").strip()
+
+    # Mirrors the browser's FormData POST in /plugins/mitid/*/js/mitid-cpr.js.
+    request = nordnet_session.post(
+        base_url + form['data-verify-path'],
+        files={'cpr': (None, cpr), 'rememberCpr': (None, 'false')},
+        headers={'Accept': 'application/json'},
+    )
+    request.raise_for_status()
+
+    result = request.json()
+    if not result.get('success'):
+        raise Exception(f"Signicat rejected the CPR number ({result.get('remainingAttempts')} attempts remaining)")
+
+    request = nordnet_session.get(base_url + form['data-finalize-cpr-path'])
+    request.raise_for_status()
+    return request
+
+def nordnet_login(user_id, password='', method="APP", proxy=None, cpr=None):
     nordnet_session = requests.Session()
     if proxy:
         nordnet_session.proxies.update({"http": f"socks5://{proxy}", "https": f"socks5://{proxy}" })
@@ -50,6 +74,10 @@ def nordnet_login(user_id, password='', method="APP", proxy=None):
 
     request = nordnet_session.get(soup.div.next['data-base-url']+soup.div.next['data-finalize-auth-path'])
     request.raise_for_status()
+
+    # Signicat interposes a CPR-number page before issuing the OAuth code.
+    if 'code' not in parse_qs(urlparse(request.url).query):
+        request = submit_cpr(nordnet_session, request, cpr)
 
     parsed_url = urlparse(request.url)
     code = parse_qs(parsed_url.query)['code'][0]
